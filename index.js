@@ -1,3 +1,6 @@
+const dotenv = require('dotenv')
+dotenv.config()
+
 const server = require('./server')
 const bot = require('./bot')
 const { getCookie } = require('./utils/cookie-store')
@@ -9,16 +12,12 @@ const { openSession, removeSession, getSession } = require('./utils/current-sess
 const authenticatedOnly = require('./utils/authenticatedOnly')
 const { formatSong, formatSongList } = require('./utils/format')
 
-const API_URL = 'http://localhost:5000'
-// const apiUrl = process.env.API_URL
 
-const BASE_URL = 'http://localhost:3600'
-// const BASE_URL = process.env.BASE_URL
-
-// Create a bot that uses 'polling' to fetch new updates
+const API_URL = process.env.API_URL
+const BASE_URL = process.env.BASE_URL
 
 const errorHandler = (chatId, error) => {
-    bot.sendMessage(chatId, error.response.data || `Error happened! Message: ${error.message}`)
+    bot.sendMessage(chatId, error.response && error.response.data || `Error happened! Message: ${error.message}`)
 }
 
 const getOptions = (chatId, extraOptions = {}) => {
@@ -42,7 +41,6 @@ bot.onText(/\/help/, (msg) => {
     const chatId = msg.chat.id
     bot.sendMessage(chatId, helpText)
 })
-
 
 bot.onText(/\/login/, (msg) => {
     const chatId = msg.chat.id
@@ -94,7 +92,8 @@ bot.onText(/\/session/, authenticatedOnly((msg) => {
     if (!sessionHash) {
         return bot.sendMessage(chatId, 'You have no active session, you can create one by typing /createsession')
     }
-    return bot.sendMessage(chatId, `Session created, hash: ${sessionHash}`)
+    // TODO: show session owner
+    return bot.sendMessage(chatId, `Session hash: ${sessionHash}`)
 }))
 
 bot.onText(/\/opensession (.+)/, authenticatedOnly((msg, match) => {
@@ -185,6 +184,12 @@ bot.onText(/\/addsong( (.+))?/, authenticatedOnly((msg, match) => {
         .catch((error) => {
             errorHandler(chatId, error)
         })
+}))
+
+bot.onText(/\/logout/, authenticatedOnly((msg) => {
+    const chatId = msg.chat.id
+    removeSession(chatId)
+    bot.sendMessage(chatId, 'You have been logged out')
 }))
 
 const port = process.env.PORT || 3600
