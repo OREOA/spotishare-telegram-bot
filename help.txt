@@ -1,0 +1,8 @@
+/login - Login with your Spotify account
+/me - Shows info about the Spotify account logged in
+/createsession - Creates a new session for your account
+/mysession - Get your active session
+/opensession <hash> - Open session by hash
+/queue - Get the current queue
+/addsong <spotify link> - Add a song to the queue
+/logout - Logout from your Spotify account
