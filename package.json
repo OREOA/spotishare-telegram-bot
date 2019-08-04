@@ -11,12 +11,13 @@
   "license": "ISC",
   "dependencies": {
     "axios": "^0.19.0",
+    "botgram": "^2.2.0",
     "cookie-parser": "^1.4.4",
     "dotenv": "^8.0.0",
     "express": "^4.17.1",
     "fs": "0.0.1-security",
     "morgan": "^1.9.1",
-    "node-telegram-bot-api": "^0.30.0",
+    "node-wit": "^5.0.0",
     "path": "^0.12.7"
   }
 }

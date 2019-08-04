@@ -1,12 +1,11 @@
 const { getCookie } = require('./cookie-store')
-const bot = require('../bot')
 
-const authenticatedOnly = (func) => (msg, match) => {
+const authenticatedOnly = (func) => (msg, reply) => {
     const chatId = msg.chat.id
     if (getCookie(chatId)) {
-        func(msg, match)
+        func(msg, reply)
     } else {
-        bot.sendMessage(chatId, 'In order to use me you need to log in with Spotify by typing /login')
+        reply.text('In order to use me you need to log in with Spotify by typing /login')
     }
 }
 

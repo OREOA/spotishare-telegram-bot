@@ -1,9 +1,6 @@
-const TelegramBot = require('node-telegram-bot-api')
+const botgram = require("botgram")
+const { TELEGRAM_TOKEN } = require('./config')
 
-const TOKEN = process.env.TOKEN
-
-const bot = new TelegramBot(TOKEN, {
-    polling: true
-})
+const bot = botgram(TELEGRAM_TOKEN)
 
 module.exports = bot

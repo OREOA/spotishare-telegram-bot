@@ -1,0 +1,9 @@
+const { Wit, log } = require('node-wit')
+const { WIT_TOKEN } = require('./config')
+
+const witClient = new Wit({
+    accessToken: WIT_TOKEN,
+    logger: new log.Logger(log.DEBUG), // optional
+})
+
+module.exports = witClient

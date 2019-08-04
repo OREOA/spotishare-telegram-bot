@@ -1,196 +1,200 @@
 const dotenv = require('dotenv')
 dotenv.config()
 
+const { API_URL, BASE_URL, ENABLE_FREE_TEXT, FREE_TEXT_IN_PRIVATE_ONLY } = require('./config')
+
 const server = require('./server')
 const bot = require('./bot')
 const { getCookie } = require('./utils/cookie-store')
-const axios = require('axios')
 const fs = require('fs')
 const path = require('path')
 const { openSession, removeSession, getSession } = require('./utils/current-session')
 
+let witClient
+if (ENABLE_FREE_TEXT) {
+    witClient = require('./witClient')
+}
+
+const { endMySession } = require('./services/session')
 const authenticatedOnly = require('./utils/authenticatedOnly')
+const withSessionOnly = require('./utils/withSessionOnly')
 const { formatSong, formatSongList } = require('./utils/format')
-
-
-const API_URL = process.env.API_URL
-const BASE_URL = process.env.BASE_URL
-
-const errorHandler = (chatId, error) => {
-    bot.sendMessage(chatId, error.response && error.response.data || `Error happened! Message: ${error.message}`)
-}
-
-const getOptions = (chatId, extraOptions = {}) => {
-    return {
-        headers: {
-            Cookie: `spotishare=${getCookie(chatId)};`,
-        },
-        ...extraOptions
-    }
-}
+const errorHandler = require('./utils/errorHandler')
+const { createSession, getMe, getMySession } = require('./services/session')
+const { addSong, getCurrent, getQueue } = require('./services/song')
+const { searchTrack } = require('./services/search')
 
 const helpText = fs.readFileSync(path.resolve(__dirname, 'help.txt'), 'utf8')
 
-bot.onText(/\/start( (.+))?/, (msg, match) => {
-    const chatId = msg.chat.id
-    // const hash = match[2]
-    bot.sendMessage(chatId, helpText)
+bot.command('start', 'help', (msg, reply) => {
+    reply.text(helpText)
 })
 
-bot.onText(/\/help/, (msg) => {
-    const chatId = msg.chat.id
-    bot.sendMessage(chatId, helpText)
-})
-
-bot.onText(/\/login/, (msg) => {
+bot.command('login', (msg, reply) => {
     const chatId = msg.chat.id
     const redirectUri = encodeURIComponent(`${BASE_URL}/authenticate?id=${chatId}`)
     const url = `${API_URL}/login?redirectUrl=${redirectUri}`
-    bot.sendMessage(chatId, `Please open ${url} to authenticate`)
+    reply.text(`Please open ${url} to authenticate`)
 })
 
-bot.onText(/\/me/, authenticatedOnly((msg) => {
+bot.command('me', authenticatedOnly((msg, reply) => {
     const chatId = msg.chat.id
-    axios.get(`${API_URL}/api/me`, getOptions(chatId))
+    getMe(chatId)
         .then(({ data }) => {
-            bot.sendMessage(chatId, `Logged in as ${data.display_name} (${data.id})\n${data.external_urls.spotify}`)
+            reply.text(`Logged in as ${data.display_name} (${data.id})\n${data.external_urls.spotify}`)
         })
-        .catch((error) => {
-            errorHandler(chatId, error)
-        })
+        .catch(errorHandler.bind(null, reply))
 }))
 
-bot.onText(/\/createsession/, authenticatedOnly((msg) => {
+bot.command('createsession', authenticatedOnly((msg, reply) => {
     const chatId = msg.chat.id
-    axios.post(`${API_URL}/api/session`, {}, getOptions(chatId))
-        .then(({ data: { hash } }) => {
-            openSession(chatId, hash)
-            bot.sendMessage(chatId, `Session created, hash: ${hash}`)
+    createSession(chatId)
+        .then((hash) => {
+            reply.text(`Session created, hash: ${hash}`)
         })
-        .catch((error) => {
-            errorHandler(chatId, error)
-        })
+        .catch(errorHandler.bind(null, reply))
 }))
 
-bot.onText(/\/mysession/, authenticatedOnly((msg) => {
+bot.command('mysession', authenticatedOnly((msg, reply) => {
     const chatId = msg.chat.id
-    axios.get(`${API_URL}/api/session`, getOptions(chatId))
-        .then(({ data }) => {
-            if (data == null) {
-                return bot.sendMessage(chatId, 'You have no active session, you can create one by typing /createsession')
-            }
-            bot.sendMessage(chatId, `Session hash: ${data.hash}`)
+    getMySession(chatId)
+        .then((hash) => {
+            reply.text(`Session hash: ${hash}`)
         })
-        .catch((error) => {
-            errorHandler(chatId, error)
-        })
+        .catch(errorHandler.bind(null, reply))
 }))
 
-bot.onText(/\/session/, authenticatedOnly((msg) => {
-    const chatId = msg.chat.id
-    const sessionHash = getSession(chatId)
+bot.command('session', authenticatedOnly((msg, reply) => {
+    const sessionHash = getSession(msg.chat.id)
     if (!sessionHash) {
-        return bot.sendMessage(chatId, 'You have no active session, you can create one by typing /createsession')
+        return reply.text('You have no active session, you can create one by typing /createsession')
     }
     // TODO: show session owner
-    return bot.sendMessage(chatId, `Session hash: ${sessionHash}`)
+    return reply.text(`Session hash: ${sessionHash}`)
 }))
 
-bot.onText(/\/opensession (.+)/, authenticatedOnly((msg, match) => {
+bot.command('opensession', authenticatedOnly((msg, reply) => {
     const chatId = msg.chat.id
-    const hash = match[1]
+    const [ hash ] = msg.args[2]
     openSession(chatId, hash)
-    bot.sendMessage(chatId, `Opened session ${hash}`)
+    reply.text(`Opened session ${hash}`)
 }))
 
-bot.onText(/\/endsession/, authenticatedOnly((msg) => {
+bot.command('endsession', authenticatedOnly((msg, reply) => {
     const chatId = msg.chat.id
-    removeSession(chatId)
-    axios.delete(`${API_URL}/api/session`, getOptions(chatId))
-        .then(({ data }) => {
-            if (data == null) {
-                return bot.sendMessage(chatId, 'You have no active session')
-            }
-            return axios.get(`${API_URL}/api/session/${data.hash}`, getOptions(chatId))
-        })
+    endMySession(chatId
         .then(() => {
-            bot.sendMessage(chatId, 'Your session has been ended')
-        })
-        .catch((error) => {
-            errorHandler(chatId, error)
-        })
+            reply.text('Your session has been ended')
+        }))
 }))
 
-bot.onText(/\/queue/, authenticatedOnly((msg) => {
+bot.command('queue', withSessionOnly((msg, reply) => {
     const chatId = msg.chat.id
-    const sessionHash = getSession(chatId)
-    if (!sessionHash) {
-        return bot.sendMessage(chatId, 'You have to open or create a session first')
-    }
-    axios.get(`${API_URL}/api/song`, getOptions(chatId, {
-        params: {
-            session: sessionHash,
-        },
-    }))
-        .then(({ data: { queue } }) => {
-            bot.sendMessage(chatId, `${queue.length} songs in queue:\n${formatSongList(queue, { prefix: '\t' })}`)
+    const { sessionHash } = msg
+    getQueue(chatId, sessionHash)
+        .then((queue) => {
+            reply.text(`${queue.length} songs in queue:\n${formatSongList(queue, { prefix: '\t' })}`)
         })
-        .catch((error) => {
-            errorHandler(chatId, error)
-        })
+        .catch(errorHandler.bind(null, reply))
 }))
 
-bot.onText(/\/current/, authenticatedOnly((msg) => {
+bot.command('current', withSessionOnly((msg, reply) => {
     const chatId = msg.chat.id
-    const sessionHash = getSession(chatId)
-    if (!sessionHash) {
-        return bot.sendMessage(chatId, 'You have to open or create a session first')
-    }
-    axios.get(`${API_URL}/api/song`, getOptions(chatId, {
-        params: {
-            session: sessionHash,
-        },
-    }))
-        .then(({ data: { song } }) => {
-            return bot.sendMessage(chatId, formatSong(song) || 'Nothing is playing right now')
+    const { sessionHash } = msg
+    getCurrent(chatId, sessionHash)
+        .then((song) => {
+            return reply.text(formatSong(song) || 'Nothing is playing right now')
         })
-        .catch((error) => {
-            errorHandler(chatId, error)
-        })
+        .catch(errorHandler.bind(null, reply))
 }))
 
-bot.onText(/\/addsong( (.+))?/, authenticatedOnly((msg, match) => {
+bot.command('addsong', withSessionOnly((msg, reply) => {
     const chatId = msg.chat.id
-    const sessionHash = getSession(chatId)
-    if (!sessionHash) {
-        return bot.sendMessage(chatId, 'You have to open or create a session first')
+    const { sessionHash } = msg
+    const [ songUrl ] = msg.args[2]
+    if (!songUrl) {
+        return reply.text('You need to give song url/id')
     }
-    if (!match || !match[2]) {
-        return bot.sendMessage(chatId, 'You need to give song url/id')
-    }
-    const songUrl = match[2]
     const spotifyMatch = songUrl.match(/^(https:\/\/open.spotify.com\/track\/|spotify:track:)?([a-zA-Z0-9]+)(.*)$/)
     if (!spotifyMatch || !spotifyMatch[2]) {
-        return bot.sendMessage(chatId, 'Id couldn\'t be parsed')
+        return reply.text('Id couldn\'t be parsed')
     }
     const songId = spotifyMatch[2]
-    axios.post(`${API_URL}/api/song`, {
-        songId,
-        session: sessionHash
-    }, getOptions(chatId))
+    addSong(chatId, sessionHash, songId)
         .then(() => {
-            return bot.sendMessage(chatId, 'Song added!')
+            return reply.text('Song added!')
         })
-        .catch((error) => {
-            errorHandler(chatId, error)
-        })
+        .catch(errorHandler.bind(null, reply))
 }))
 
-bot.onText(/\/logout/, authenticatedOnly((msg) => {
+bot.command('logout', authenticatedOnly((msg, reply) => {
     const chatId = msg.chat.id
     removeSession(chatId)
-    bot.sendMessage(chatId, 'You have been logged out')
+    reply.text('You have been logged out')
 }))
+
+if (ENABLE_FREE_TEXT && witClient) {
+    bot.message((msg, reply) => {
+        if (FREE_TEXT_IN_PRIVATE_ONLY && msg.chat.type !== 'private') {
+            return
+        }
+        const chatId = msg.chat.id
+        const cookie = getCookie(chatId)
+        if (!cookie) {
+            return
+        }
+        const sessionHash = getSession(chatId)
+        if (!sessionHash) {
+            return
+        }
+        if (msg.text.startsWith('/')) {
+            return
+        }
+        witClient.message(msg.text)
+            .then(({ entities }) => {
+                if (!Object.keys(entities).length) {
+                    return
+                }
+                const intent = entities.intent && entities.intent[0]
+                if (!intent && intent.confidence < 0.8) {
+                    return
+                }
+                switch (intent.value) {
+                    case 'add':
+                        const artist = entities.artist && entities.artist[0].value
+                        const song = entities.song && entities.song[0].value
+                        if (!song) {
+                            return
+                        }
+                        return searchTrack(chatId, sessionHash, artist ? artist + ' ' : '' + song)
+                            .then((tracks) => {
+                                const song = tracks.items[0]
+                                if (!song) {
+                                    return reply.text('Couldn\'t find any tracks')
+                                }
+                                return addSong(chatId, sessionHash, song.id)
+                                    .then(() => {
+                                        reply.text(`${song.name} by ${song.artists[0].name} added`)
+                                    })
+                            })
+                            .catch(errorHandler.bind(null, reply))
+                    case 'status':
+                        return getCurrent(chatId, sessionHash)
+                            .then((song) => {
+                                return reply.text(formatSong(song) || 'Nothing is playing right now')
+                            })
+                            .catch(errorHandler.bind(null, reply))
+                    case 'queue':
+                        return getQueue(chatId, sessionHash)
+                            .then((queue) => {
+                                reply.text(`${queue.length} songs in queue:\n${formatSongList(queue, { prefix: '\t' })}`)
+                            })
+                            .catch(errorHandler.bind(null, reply))
+                }
+            })
+            .catch(errorHandler.bind(null, reply))
+    })
+}
 
 const port = process.env.PORT || 3600
 server.listen(port, () => {
