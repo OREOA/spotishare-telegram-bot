@@ -1,12 +1,18 @@
 const { openSession, removeSession } = require('../utils/current-session')
-const axios = require('axios')
+const axios = require('../utils/axios')
 const getOptions = require('../utils/getOptions')
 const { API_URL } = require('../config')
+const InfoError = require('../utils/InfoError')
 
-const getMe = exports.getMe = (chatId) => axios.get(`${API_URL}/api/me`, getOptions(chatId))
+const getMe = exports.getMe = (chatId) => axios(chatId)({
+    url:`${API_URL}/api/me`
+})
 
 const createSession = exports.createSession = (chatId) => {
-    return axios.post(`${API_URL}/api/session`, {}, getOptions(chatId))
+    return axios(chatId)({
+        method: 'POST',
+        url: `${API_URL}/api/session`
+    })
         .then(({ data: { hash } }) => {
             openSession(chatId, hash)
             return hash
@@ -14,10 +20,12 @@ const createSession = exports.createSession = (chatId) => {
 }
 
 const getMySession = exports.getMySession = (chatId) => {
-    return axios.get(`${API_URL}/api/session`, getOptions(chatId))
+    return axios(chatId)({
+        url: `${API_URL}/api/session`
+    })
         .then(({ data }) => {
-            if (data == null) {
-                throw new Error('You have no active session, you can create one by typing /createsession')
+            if (!data) {
+                throw new InfoError('You have no active session, you can create one by typing /createsession')
             }
             return data.hash
         })
@@ -25,7 +33,10 @@ const getMySession = exports.getMySession = (chatId) => {
 
 const endMySession = exports.endMySession = (chatId) => {
     removeSession(chatId)
-    return axios.delete(`${API_URL}/api/session`, getOptions(chatId))
+    return axios(chatId)({
+        method: 'DELETE',
+        url: `${API_URL}/api/session`,
+    })
         .then(({ data }) => {
             if (data == null) {
                 throw new Error('You have no active session')

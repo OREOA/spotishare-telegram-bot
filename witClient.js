@@ -3,7 +3,7 @@ const { WIT_TOKEN } = require('./config')
 
 const witClient = new Wit({
     accessToken: WIT_TOKEN,
-    logger: new log.Logger(log.DEBUG), // optional
+    logger: new log.Logger(process.env.DEBUG ? log.DEBUG : log.ERROR), // optional
 })
 
 module.exports = witClient

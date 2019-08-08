@@ -1,5 +1,13 @@
+const InfoError = require('./InfoError')
+
 const errorHandler = (reply, error) => {
-    reply.text(error.response && error.response.data || `Error happened! Message: ${error.message}`)
+    if (error.response && error.response.data) {
+        return reply.text(error.response && error.response.data)
+    }
+    if (error instanceof InfoError) {
+        return reply.text(error.message)
+    }
+    reply.text(`Error happened! Message: ${error.message}`)
 }
 
 module.exports = errorHandler
